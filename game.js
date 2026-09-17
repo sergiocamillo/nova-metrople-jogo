@@ -1631,14 +1631,31 @@ function updateSunShadow(){
 
 // A câmera se alinha sozinha ao movimento, para a criança não precisar
 // controlá-la com o segundo dedo. Só recua quando ela mesma está arrastando.
+// Câmera automática: gira sozinha para ficar atrás do herói quando a
+// criança não está com o dedo na tela olhando.
+//
+// Não pode usar P.vel nem o yaw calculado no MESMO frame: o input é
+// transformado pelo yaw da câmera para virar velocidade, então se a câmera
+// também girasse atrás dessa velocidade no mesmo frame, as duas ficariam se
+// perseguindo em loop (sintoma real visto: o jogador só girava no lugar).
+// Em vez disso mede o deslocamento efetivo entre frames — um dado que já
+// aconteceu e não depende mais do yaw atual.
+const autoCamPrevPos = new THREE.Vector3();
+let autoCamPrevValid = false;
+
 function updateAutoCamera(dt){
+  const moveu = autoCamPrevValid ? tmpVec2.copy(P.pos).sub(autoCamPrevPos) : null;
+  autoCamPrevPos.copy(P.pos);
+  autoCamPrevValid = true;
+
   if(performance.now() - ultimoToqueCamera < 2500) return;
   if(climbing || swing.active || !P.onGround) return; // só segue no chão
-  const vel = Math.hypot(P.vel.x, P.vel.z);
-  if(vel < 2) return;
-  // Mesma fórmula usada para virar o corpo (ver player.rotation.y acima):
-  // a câmera fica atrás do herói, então precisa mirar para onde ELE olha.
-  const desejado = Math.atan2(P.vel.x, P.vel.z) + Math.PI;
+  if(!moveu) return;
+  moveu.y = 0;
+  const dist = moveu.length();
+  if(dist < 0.02) return; // parado ou deslocamento irrisório: não gira à toa
+
+  const desejado = Math.atan2(moveu.x, moveu.z);
   let delta = desejado - camState.yaw;
   while(delta >  Math.PI) delta -= Math.PI*2;
   while(delta < -Math.PI) delta += Math.PI*2;
@@ -1735,9 +1752,5 @@ function animate(){
 
 resize();
 animate();
-
-
-
-
 
 })();
