@@ -1480,7 +1480,9 @@ function updatePlayer(dt){
     if(keys['KeyS']||keys['ArrowDown']) mz+=1;
     if(keys['KeyA']||keys['ArrowLeft']) mx-=1;
     if(keys['KeyD']||keys['ArrowRight']) mx+=1;
-    mx += stick.x; mz -= stick.y;
+    // stick.y é negativo quando o dedo sobe (mesma convenção de W, que dá
+    // mz=-1) — por isso soma direto, sem inverter o sinal.
+    mx += stick.x; mz += stick.y;
     if(mx||mz){
       const yaw=camState.yaw;
       const fx = Math.sin(yaw)*mz + Math.cos(yaw)*mx;
@@ -1496,7 +1498,7 @@ function updatePlayer(dt){
     if(keys['KeyS']||keys['ArrowDown']) mz+=1;
     if(keys['KeyA']||keys['ArrowLeft']) mx-=1;
     if(keys['KeyD']||keys['ArrowRight']) mx+=1;
-    mx += stick.x; mz -= stick.y;
+    mx += stick.x; mz += stick.y;
     const len = Math.hypot(mx,mz);
     if(len>0.01){
       mx/=Math.max(len,1); mz/=Math.max(len,1);
