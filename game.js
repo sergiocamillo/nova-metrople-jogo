@@ -740,7 +740,12 @@ function updateAnimationState(dt){
   if(!mixer) return;
   const speed = Math.hypot(P.vel.x, P.vel.z);
 
-  if(swing.active || ability.flying || !P.onGround){
+  if(climbing){
+    // Sem clipe de escalada no acervo: reaproveita a corrida devagar, que
+    // já mexe braços e pernas, em vez do "fall" parado que parece elevador.
+    playAction('run');
+    if(actions.run) actions.run.timeScale = 0.7;
+  } else if(swing.active || ability.flying || !P.onGround){
     playAction(P.vel.y > 3 ? 'jump' : 'fall');
   } else if(speed > 0.8){
     playAction('run');
@@ -816,6 +821,10 @@ const webLine = new THREE.Line(
   new THREE.LineBasicMaterial({ color:0xffffff, transparent:true, opacity:0.85, linewidth:2 })
 );
 webLine.visible = false;
+webLine.releasing = false;
+webLine.releaseT = 0;
+webLine.releaseFrom = new THREE.Vector3();
+webLine.releaseAnchor = new THREE.Vector3();
 scene.add(webLine);
 
 const webShot = new THREE.Mesh(new THREE.SphereGeometry(0.18,8,8), new THREE.MeshBasicMaterial({ color:0xffffff }));
@@ -948,7 +957,12 @@ function startSwing(){
 function endSwing(boost){
   if(!swing.active) return;
   swing.active = false;
-  webLine.visible = false;
+  // A teia não some de repente: solta do prédio e recolhe visualmente,
+  // como no gesto real de largar uma corda.
+  webLine.releasing = true;
+  webLine.releaseT = 0;
+  webLine.releaseFrom.copy(player.position).setY(player.position.y+1.1);
+  webLine.releaseAnchor.copy(swing.anchor);
   state.swinging = false;
   if(boost){
     P.vel.y += 6;
@@ -1126,6 +1140,7 @@ window.addEventListener('keyup', e=>{ keys[e.code]=false; });
 let jumpBuffer=0;
 let dashing=false;
 let climbing=false;
+let climbT=0;
 let ultimoToqueCamera = 0;
 function tryJump(){
   if(P.onGround){ P.vel.y = 10.5; P.onGround=false; }
@@ -1464,9 +1479,14 @@ function updatePlayer(dt){
       const yaw=camState.yaw;
       const fx = Math.sin(yaw)*mz + Math.cos(yaw)*mx;
       const fz = Math.cos(yaw)*mz - Math.sin(yaw)*mx;
-      // atan2(fx,fz) aponta +Z para o movimento; os modelos do Mixamo olham
-      // para -Z, daí o meio giro.
-      const targetYaw = Math.atan2(fx, fz) + Math.PI;
+      // Com rotation.y = θ, a frente local do modelo (0,0,-1) vira, no
+      // mundo, (sin θ, 0, -cos θ) — checado nos três modelos do Mixamo, que
+      // sem rotação extra já olham para -Z. Para essa frente-no-mundo bater
+      // com o vetor de movimento (fx,fz): sin θ = fx, cos θ = -fz.
+      // Medido no asset com player.rotation.y=0: a frente (-Z local) aponta
+      // para (0,0,-1) no mundo. Girando por θ em Y, (0,0,-1) vira
+      // (-sin θ, 0, -cos θ); igualando a (fx,fz): sin θ=-fx, cos θ=-fz.
+      const targetYaw = Math.atan2(-fx, -fz);
       // interpola pelo caminho curto, senão o herói gira o corpo todo ao
       // atravessar 180°
       let delta = targetYaw - player.rotation.y;
@@ -1499,15 +1519,27 @@ function updatePlayer(dt){
         P.pos.y < b.h - 0.5 && insideFootprint(b, fx, fz, 1.2)
       ) || null;
     }
+    const comecandoAgora = parede && !climbing;
     climbing = !!parede;
     if(climbing){
-      P.vel.y = 7.5;              // sobe em ritmo calmo, fácil de acompanhar
+      if(comecandoAgora) climbT = 0;
+      climbT += dt;
+      // Acelera até um ritmo de escalada, em vez de saltar direto pra uma
+      // velocidade fixa — isso é o que faz parecer elevador.
+      const ritmo = Math.min(climbT / 0.5, 1);
+      // Um leve vaivém lateral simula o gesto de puxar o corpo, alternando
+      // o "braço" que segura a parede.
+      const vaivem = Math.sin(clock.elapsedTime * 6) * 0.35;
+      P.vel.y = lerp(P.vel.y, 4.5 * ritmo, 0.3);
+
       // Cola na parede: sem isso a colisão empurra o herói de volta e ele
       // escorrega em vez de subir.
       const dx = P.pos.x - parede.x, dz = P.pos.z - parede.z;
       const d2 = Math.hypot(dx, dz) || 1;
-      P.vel.x = -dx/d2 * 1.2;
-      P.vel.z = -dz/d2 * 1.2;
+      const nx = -dx/d2, nz = -dz/d2;      // normal apontando pra dentro da parede
+      const tx = -nz, tz = nx;             // tangente, pra dar o vaivém lateral
+      P.vel.x = nx*1.1 + tx*vaivem;
+      P.vel.z = nz*1.1 + tz*vaivem;
     }
   }
 
@@ -1559,7 +1591,22 @@ function updatePlayer(dt){
     updateWebLine(swing.shootFrom, p);
   } else {
     webShot.visible = false;
-    if(swing.active) updateWebLine(new THREE.Vector3(P.pos.x,P.pos.y+0.9,P.pos.z), swing.anchor);
+    if(swing.active){
+      updateWebLine(new THREE.Vector3(P.pos.x,P.pos.y+0.9,P.pos.z), swing.anchor);
+    } else if(webLine.releasing){
+      // Encolhe do herói até o ponto onde estava presa, em vez de sumir de
+      // repente — dá a sensação de a teia se soltando e recolhendo.
+      webLine.releaseT += dt*3.2;
+      if(webLine.releaseT >= 1){
+        webLine.releasing = false;
+        webLine.visible = false;
+      } else {
+        const alvo = new THREE.Vector3(P.pos.x, P.pos.y+0.9, P.pos.z);
+        const preso = tmpVec2.copy(webLine.releaseFrom).lerp(webLine.releaseAnchor, webLine.releaseT);
+        webLine.visible = true;
+        updateWebLine(alvo, preso);
+      }
+    }
   }
 }
 
@@ -1688,6 +1735,7 @@ function animate(){
 
 resize();
 animate();
+
 
 
 
