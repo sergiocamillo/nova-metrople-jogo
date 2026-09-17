@@ -346,6 +346,21 @@
   }
   .rotate-title{ font-weight:800; font-size:19px; letter-spacing:.05em; }
   .rotate-sub{ color:var(--text-dim); font-size:13px; max-width:280px; line-height:1.5; }
+
+  /* ---------- Botão de tela cheia ---------- */
+  /* Sem tela cheia a barra de endereço do navegador fica visível e come
+     espaço da tela na horizontal. O toque precisa ser direto do usuário
+     (senão o navegador recusa o pedido de fullscreen), por isso é um botão
+     próprio em vez de tentar entrar sozinho ao virar o aparelho. */
+  #fullscreen-hint{
+    position:fixed; z-index:55; top:10px; right:10px;
+    display:none; align-items:center; gap:8px;
+    background:rgba(10,13,26,.85); border:1.5px solid var(--accent-2);
+    color:var(--text); font-family:inherit; font-weight:700; font-size:12px;
+    padding:9px 14px; border-radius:20px; cursor:pointer;
+    box-shadow:0 4px 16px rgba(0,0,0,.4);
+  }
+  #fullscreen-hint.show{ display:flex; }
 </style>
 </head>
 <body>
@@ -355,6 +370,8 @@
   <div class="rotate-title">Vire o celular</div>
   <div class="rotate-sub">O jogo foi feito para a tela deitada. Gire o aparelho para jogar.</div>
 </div>
+
+<button id="fullscreen-hint" type="button">⛶ Tela cheia</button>
 
 <div id="loading">
   <div class="brand-title" style="font-size:32px;">NOVA<em>MET</em></div>

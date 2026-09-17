@@ -94,22 +94,45 @@ function checkOrientation(){
   portraitBlocked = isTouch && portrait;
   const gate = $('rotate-gate');
   if(gate) gate.classList.toggle('show', portraitBlocked);
+  updateFullscreenHint();
+}
+
+function inFullscreen(){
+  return !!(document.fullscreenElement || document.webkitFullscreenElement);
+}
+
+// Sem tela cheia, a barra de endereço fica visível e come espaço da tela
+// deitada. O navegador só aceita o pedido de fullscreen dentro de um toque
+// direto do usuário, então mostramos um botão em vez de tentar sozinho.
+function updateFullscreenHint(){
+  const btn = $('fullscreen-hint');
+  if(!btn) return;
+  const paisagem = window.innerWidth > window.innerHeight;
+  btn.classList.toggle('show', isTouch && paisagem && !inFullscreen() && !portraitBlocked);
+}
+
+async function enterFullscreen(){
+  try{
+    if(document.documentElement.requestFullscreen && !inFullscreen()){
+      await document.documentElement.requestFullscreen();
+    }
+    if(screen.orientation && screen.orientation.lock){
+      await screen.orientation.lock('landscape').catch(()=>{});
+    }
+  }catch(e){
+    // Sem permissão ou sem suporte: o botão continua visível para tentar de novo.
+  }
+  updateFullscreenHint();
 }
 
 // Tenta travar em paisagem de verdade (funciona em tela cheia no Android;
 // o iOS ignora, e aí o aviso acima cobre o caso).
 async function lockLandscape(){
-  try{
-    if(document.documentElement.requestFullscreen && !document.fullscreenElement){
-      await document.documentElement.requestFullscreen();
-    }
-    if(screen.orientation && screen.orientation.lock){
-      await screen.orientation.lock('landscape');
-    }
-  }catch(e){
-    // Sem permissão ou sem suporte: o aviso de girar resolve.
-  }
+  await enterFullscreen();
 }
+
+document.addEventListener('fullscreenchange', updateFullscreenHint);
+document.addEventListener('webkitfullscreenchange', updateFullscreenHint);
 
 // ---------- Luzes ----------
 const hemi = new THREE.HemisphereLight(0xd6e8ff, 0x8a8fa3, 0.85);
@@ -1253,6 +1276,7 @@ $('btnStart').addEventListener('click', ()=>{
   $('screen-start').classList.add('hidden');
   $('screen-select').classList.remove('hidden');
 });
+$('fullscreen-hint').addEventListener('click', enterFullscreen);
 $('btnConfirm').addEventListener('click', async ()=>{
   const btn = $('btnConfirm');
   btn.disabled = true;
@@ -1629,38 +1653,13 @@ function updateSunShadow(){
   sun.target.updateMatrixWorld();
 }
 
-// A câmera se alinha sozinha ao movimento, para a criança não precisar
-// controlá-la com o segundo dedo. Só recua quando ela mesma está arrastando.
-// Câmera automática: gira sozinha para ficar atrás do herói quando a
-// criança não está com o dedo na tela olhando.
-//
-// Não pode usar P.vel nem o yaw calculado no MESMO frame: o input é
-// transformado pelo yaw da câmera para virar velocidade, então se a câmera
-// também girasse atrás dessa velocidade no mesmo frame, as duas ficariam se
-// perseguindo em loop (sintoma real visto: o jogador só girava no lugar).
-// Em vez disso mede o deslocamento efetivo entre frames — um dado que já
-// aconteceu e não depende mais do yaw atual.
-const autoCamPrevPos = new THREE.Vector3();
-let autoCamPrevValid = false;
-
-function updateAutoCamera(dt){
-  const moveu = autoCamPrevValid ? tmpVec2.copy(P.pos).sub(autoCamPrevPos) : null;
-  autoCamPrevPos.copy(P.pos);
-  autoCamPrevValid = true;
-
-  if(performance.now() - ultimoToqueCamera < 2500) return;
-  if(climbing || swing.active || !P.onGround) return; // só segue no chão
-  if(!moveu) return;
-  moveu.y = 0;
-  const dist = moveu.length();
-  if(dist < 0.02) return; // parado ou deslocamento irrisório: não gira à toa
-
-  const desejado = Math.atan2(moveu.x, moveu.z);
-  let delta = desejado - camState.yaw;
-  while(delta >  Math.PI) delta -= Math.PI*2;
-  while(delta < -Math.PI) delta += Math.PI*2;
-  camState.yaw += delta * Math.min(1, dt*1.6);
-}
+// A câmera automática (girar sozinha atrás do herói) foi removida: ela
+// entrava em loop com a rotação do corpo (o input é transformado pelo yaw
+// da câmera para virar velocidade, e a câmera girava atrás dessa
+// velocidade no mesmo frame — as duas ficavam se perseguindo, e na prática
+// o jogador girava no lugar sem conseguir seguir em frente). A câmera fica
+// como o jogador a deixar, e o corpo gira sozinho para a direção do
+// movimento, o que já resolve a maior parte da dificuldade de mirar.
 
 function updateCamera(){
   const target = tmpVec.set(P.pos.x, P.pos.y+1.1, P.pos.z);
@@ -1718,7 +1717,6 @@ function animate(){
   if(state.running && !portraitBlocked){
     updateAbility(dt);
     updatePlayer(dt);
-    updateAutoCamera(dt);
     updateSunShadow();
     updateSky();
     updateCamera();
